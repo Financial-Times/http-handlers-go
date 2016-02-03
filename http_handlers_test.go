@@ -57,7 +57,7 @@ func TestWriteLog(t *testing.T) {
 	assert := assert.New(t)
 
 	now := time.Now().Format(time.RFC3339)
-	ts, _ := time.Parse(time.RFC3339, "2015-01-01T00:00:00.Z")
+	resptime := time.Millisecond * 123
 
 	// A typical request with an OK response
 	req, err := http.NewRequest("GET", "http://example.com", nil)
@@ -70,17 +70,17 @@ func TestWriteLog(t *testing.T) {
 	logger.Out = buf
 	logger.Formatter = new(log.JSONFormatter)
 
-	writeRequestLog(logger, req, knownTransactionID, *req.URL, ts, http.StatusOK, 100)
+	writeRequestLog(logger, req, knownTransactionID, *req.URL, resptime, http.StatusOK, 100)
 
 	var fields log.Fields
 	err = json.Unmarshal(buf.Bytes(), &fields)
 	assert.NoError(err, "Could not unmarshall")
 
-	expected := fmt.Sprintf(`{"fields.time":"%s","host":"192.168.100.11",
+	expected := fmt.Sprintf(`{"host":"192.168.100.11",
   "level":"info","method":"GET","msg":"","protocol":"HTTP/1.1",
-  "referer":"http://example.com","size":100,"status":200,
-  "time":"%s","transaction_id":"KnownTransactionId",
-  "uri":"/","userAgent":"User agent","username":"-"}`, ts.Format(time.RFC3339), now)
+  "referer":"http://example.com","responsetime":%d,"size":100,"status":200,
+  "time":"%s", "transaction_id":"KnownTransactionId",
+  "uri":"/","userAgent":"User agent","username":"-"}`, int64(resptime.Seconds()*1000), now)
 	assert.JSONEq(expected, buf.String(), "Log format didn't match")
 }
 

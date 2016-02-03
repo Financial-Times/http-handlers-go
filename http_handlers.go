@@ -44,7 +44,8 @@ func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, 
 	loggingResponseWriter := wrapWriter(w)
 	url := *req.URL
 	h.handler.ServeHTTP(loggingResponseWriter, req)
-	writeRequestLog(h.logger, req, transactionID, url, t, loggingResponseWriter.Status(), loggingResponseWriter.Size())
+	duration := time.Since(t)
+	writeRequestLog(h.logger, req, transactionID, url, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size())
 }
 
 func wrapWriter(w http.ResponseWriter) loggingResponseWriter {
@@ -142,7 +143,7 @@ type hijackCloseNotifier struct {
 // ts is the timestamp with which the entry should be logged.
 // trnasactionID is a unique id for this request.
 // status and size are used to provide the response HTTP status and size.
-func writeRequestLog(logger *log.Logger, req *http.Request, transactionID string, url url.URL, ts time.Time, status, size int) {
+func writeRequestLog(logger *log.Logger, req *http.Request, transactionID string, url url.URL, responseTime time.Duration, status, size int) {
 	username := "-"
 	if url.User != nil {
 		if name := url.User.Username(); name != "" {
@@ -169,7 +170,7 @@ func writeRequestLog(logger *log.Logger, req *http.Request, transactionID string
 	}
 
 	logger.WithFields(log.Fields{
-		"time":           ts,
+		"responsetime":   int64(responseTime.Seconds() * 1000),
 		"host":           host,
 		"username":       username,
 		"method":         req.Method,
