@@ -40,6 +40,7 @@ type transactionAwareRequestLoggingHandler struct {
 
 func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	transactionID := transactionidutils.GetTransactionIDFromRequest(req)
+	w.Header().Set(transactionidutils.TransactionIDHeader, transactionID)
 	t := time.Now()
 	loggingResponseWriter := wrapWriter(w)
 	url := *req.URL
