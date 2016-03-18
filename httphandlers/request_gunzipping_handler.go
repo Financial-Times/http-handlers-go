@@ -21,6 +21,7 @@ func (h requestBodyGzipHandler) ServeHTTP(w http.ResponseWriter, req *http.Reque
 			return
 		}
 		req.Body = unzipped
+		req.Header.Del("Content-Encoding")
 	}
 	h.handler.ServeHTTP(w, req)
 }

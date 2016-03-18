@@ -65,6 +65,10 @@ func requestBody(t *testing.T, headers map[string]string, inputBody []byte) ([]b
 	})
 
 	handler = RequestBodyGzipHandler(handler)
+	// We wrap twice, because we need to ensure we don't try to gzip twice.
+	// This means the handler is safe to use even when the app does it's own
+	// checking for Content-Encoding: gzip
+	handler = RequestBodyGzipHandler(handler)
 
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
