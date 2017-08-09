@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/Financial-Times/transactionid-utils-go"
-	log "github.com/Sirupsen/logrus"
 	"github.com/rcrowley/go-metrics"
+	log "github.com/sirupsen/logrus"
 )
 
 // HTTPMetricsHandler records metrics for each request
