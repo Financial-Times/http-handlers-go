@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Financial-Times/transactionid-utils-go"
+	transactionidutils "github.com/Financial-Times/transactionid-utils-go"
 	"github.com/rcrowley/go-metrics"
 	log "github.com/sirupsen/logrus"
 )

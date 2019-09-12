@@ -61,7 +61,8 @@ func TestWriteLog(t *testing.T) {
 
 	// A typical request with an OK response
 	req, err := http.NewRequest("GET", "http://example.com", nil)
-	req.RemoteAddr = "192.168.100.11"
+	assert.NoError(err)
+	req.RemoteAddr = "go192.168.100.11"
 	req.Header.Set("Referer", "http://example.com")
 	req.Header.Set("User-Agent", "User agent")
 
