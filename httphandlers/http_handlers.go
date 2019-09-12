@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/Financial-Times/go-logger/v2"
 	transactionidutils "github.com/Financial-Times/transactionid-utils-go"
 	"github.com/rcrowley/go-metrics"
-	log "github.com/sirupsen/logrus"
 )
 
 // HTTPMetricsHandler records metrics for each request
@@ -28,13 +28,13 @@ func (h httpMetricsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 }
 
 // TransactionAwareRequestLoggingHandler finds a transactionID on a request header or generates one, and makes sure it gets logged
-// using the supplied logrus.Logger
-func TransactionAwareRequestLoggingHandler(logger *log.Logger, h http.Handler) http.Handler {
+// using the supplied UPP logger
+func TransactionAwareRequestLoggingHandler(logger *logger.UPPLogger, h http.Handler) http.Handler {
 	return transactionAwareRequestLoggingHandler{logger, h}
 }
 
 type transactionAwareRequestLoggingHandler struct {
-	logger  *log.Logger
+	logger  *logger.UPPLogger
 	handler http.Handler
 }
 
@@ -140,11 +140,11 @@ type hijackCloseNotifier struct {
 	http.CloseNotifier
 }
 
-// writeRequestLog writes a log entry to the supplied logrus logger.
+// writeRequestLog writes a log entry to the supplied UPP logger.
 // ts is the timestamp with which the entry should be logged.
 // trnasactionID is a unique id for this request.
 // status and size are used to provide the response HTTP status and size.
-func writeRequestLog(logger *log.Logger, req *http.Request, transactionID string, url url.URL, responseTime time.Duration, status, size int) {
+func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID string, url url.URL, responseTime time.Duration, status, size int) {
 	username := "-"
 	if url.User != nil {
 		if name := url.User.Username(); name != "" {
@@ -170,7 +170,7 @@ func writeRequestLog(logger *log.Logger, req *http.Request, transactionID string
 		uri = url.RequestURI()
 	}
 
-	logger.WithFields(log.Fields{
+	logger.WithFields(map[string]interface{}{
 		"responsetime":   int64(responseTime.Seconds() * 1000),
 		"host":           host,
 		"username":       username,

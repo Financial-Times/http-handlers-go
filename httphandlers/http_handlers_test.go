@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Financial-Times/go-logger/v2"
 	"github.com/rcrowley/go-metrics"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -56,33 +56,38 @@ func TestHttpRequestsAreTimedAndCountedForExistingTimer(t *testing.T) {
 func TestWriteLog(t *testing.T) {
 	assert := assert.New(t)
 
-	now := time.Now().Format(time.RFC3339)
 	resptime := time.Millisecond * 123
 
 	// A typical request with an OK response
 	req, err := http.NewRequest("GET", "http://example.com", nil)
 	assert.NoError(err)
-	req.RemoteAddr = "go192.168.100.11"
+	req.RemoteAddr = "192.168.100.11"
 	req.Header.Set("Referer", "http://example.com")
 	req.Header.Set("User-Agent", "User agent")
 
-	logger := log.New()
+	log := logger.NewUPPInfoLogger("test-service")
 	buf := new(bytes.Buffer)
-	logger.Out = buf
-	logger.Formatter = new(log.JSONFormatter)
+	log.Out = buf
 
-	writeRequestLog(logger, req, knownTransactionID, *req.URL, resptime, http.StatusOK, 100)
+	writeRequestLog(log, req, knownTransactionID, *req.URL, resptime, http.StatusOK, 100)
 
-	var fields log.Fields
+	var fields map[string]interface{}
 	err = json.Unmarshal(buf.Bytes(), &fields)
 	assert.NoError(err, "Could not unmarshall")
 
+	_, ok := fields[logger.DefaultKeyTime]
+	assert.True(ok, "Missing time key in the logs")
+
+	// remove the time field as we can't compare it
+	delete(fields, logger.DefaultKeyTime)
+	bufWithoutTime, err := json.Marshal(fields)
+	assert.NoError(err, "Could not marshall log")
+
 	expected := fmt.Sprintf(`{"host":"192.168.100.11",
   "level":"info","method":"GET","msg":"","protocol":"HTTP/1.1",
-  "referer":"http://example.com","responsetime":%d,"size":100,"status":200,
-  "time":"%s", "transaction_id":"KnownTransactionId",
-  "uri":"/","userAgent":"User agent","username":"-"}`, int64(resptime.Seconds()*1000), now)
-	assert.JSONEq(expected, buf.String(), "Log format didn't match")
+  "referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
+  "uri":"/","userAgent":"User agent","username":"-","service_name":"test-service"}`, int64(resptime.Seconds()*1000))
+	assert.JSONEq(expected, string(bufWithoutTime), "Log format didn't match")
 }
 
 type innerHandler struct {
