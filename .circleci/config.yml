@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: /go/src/github.com/Financial-Times/http-handlers-go
     docker:
-      - image: golang:1.8.3
+      - image: golang:1
         environment:
           GOPATH: /go
           CIRCLE_TEST_REPORTS: /tmp/test-results
@@ -13,25 +13,35 @@ jobs:
       - run:
           name: External Dependencies
           command: |
-            go get github.com/mattn/goveralls
-            go get -u github.com/jstemmer/go-junit-report
-            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-            go get -u github.com/haya14busa/goverage
+            GO111MODULE=off go get github.com/mattn/goveralls
+            GO111MODULE=off go get -u github.com/jstemmer/go-junit-report
+            GO111MODULE=off go get -u github.com/haya14busa/goverage
+            curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.18.0
+            git clone git@github.com:Financial-Times/upp-coding-standard.git
       - run:
           name: Test Results
           command: |
             mkdir -p ${CIRCLE_TEST_REPORTS}
             mkdir -p ${CIRCLE_COVERAGE_REPORT}
       - run:
-          name: Go Dep
-          command: dep ensure -vendor-only
+          name: Go Build
+          command: go build -mod=readonly -v
+      - run:
+          name: Run linters
+          command: |
+            golangci-lint run --config upp-coding-standard/golangci-config/.golangci.yml --new-from-rev=$(git rev-parse origin/master)
       - run:
           name: Run Tests
           command: |
-            go test -race -v ./... | /go/bin/go-junit-report > ${CIRCLE_TEST_REPORTS}/main.xml
+            go test -mod=readonly -race -v ./... | /go/bin/go-junit-report > ${CIRCLE_TEST_REPORTS}/main.xml
             goverage -covermode=atomic -race -coverprofile=${CIRCLE_COVERAGE_REPORT}/coverage.out ./...
       - run:
           name: Upload Coverage
           command: /go/bin/goveralls -coverprofile=${CIRCLE_COVERAGE_REPORT}/coverage.out -service=circle-ci -repotoken=$COVERALLS_TOKEN
       - store_test_results:
           path: /tmp/test-results
+workflows:
+  version: 2
+  test-and-lint:
+    jobs:
+      - build
