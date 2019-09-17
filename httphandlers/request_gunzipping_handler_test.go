@@ -3,12 +3,13 @@ package httphandlers
 import (
 	"bytes"
 	"compress/gzip"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRequestBodyGzipHandler(t *testing.T) {
@@ -88,7 +89,10 @@ func requestBody(t *testing.T, headers map[string]string, inputBody []byte) ([]b
 
 	defer resp.Body.Close()
 
-	io.Copy(ioutil.Discard, resp.Body)
+	_, err = io.Copy(ioutil.Discard, resp.Body)
+	if err != nil {
+		t.Error(err)
+	}
 
 	return actual, resp.StatusCode
 }
