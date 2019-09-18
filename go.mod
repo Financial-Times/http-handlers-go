@@ -1,4 +1,4 @@
-module github.com/Financial-Times/http-handlers-go
+module github.com/Financial-Times/http-handlers-go/v2
 
 go 1.13
 
