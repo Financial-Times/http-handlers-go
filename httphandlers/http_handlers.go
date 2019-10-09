@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Financial-Times/go-logger/v2"
@@ -170,7 +172,7 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID 
 		uri = url.RequestURI()
 	}
 
-	logger.WithFields(map[string]interface{}{
+	entry := logger.WithFields(map[string]interface{}{
 		"responsetime":   int64(responseTime.Seconds() * 1000),
 		"host":           host,
 		"username":       username,
@@ -182,6 +184,20 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID 
 		"size":           size,
 		"referer":        req.Referer(),
 		"userAgent":      req.UserAgent(),
-	}).Info("")
+	})
 
+	uuids := getUUIDsFromURI(uri)
+	if len(uuids) > 0 {
+		entry = entry.WithUUID(strings.Join(uuids, ","))
+	}
+
+	// log the final result
+	entry.Info("")
+}
+
+// getUUIDsFromURI parses the given uri and is looking for uuids
+func getUUIDsFromURI(uri string) []string {
+	// we use regex that matches v1 to v5 versions of the UUID standard including usage of capital letters
+	re := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`)
+	return re.FindAllString(uri, -1)
 }
