@@ -145,7 +145,7 @@ type hijackCloseNotifier struct {
 // trnasactionID is a unique id for this request.
 // status and size are used to provide the response HTTP status and size.
 func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID string, url url.URL, responseTime time.Duration, status, size int) {
-	username := "-"
+	username := ""
 	if url.User != nil {
 		if name := url.User.Username(); name != "" {
 			username = name

@@ -84,9 +84,43 @@ func TestWriteLog(t *testing.T) {
 	assert.NoError(err, "Could not marshall log")
 
 	expected := fmt.Sprintf(`{"host":"192.168.100.11",
-  "level":"info","method":"GET","msg":"","protocol":"HTTP/1.1",
+  "level":"info","method":"GET","protocol":"HTTP/1.1",
   "referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
-  "uri":"/","userAgent":"User agent","username":"-","service_name":"test-service"}`, int64(resptime.Seconds()*1000))
+  "uri":"/","userAgent":"User agent","service_name":"test-service"}`, int64(resptime.Seconds()*1000))
+	assert.JSONEq(expected, string(bufWithoutTime), "Log format didn't match")
+}
+
+func TestWriteLogWithUser(t *testing.T) {
+	assert := assert.New(t)
+
+	resptime := time.Millisecond * 123
+
+	// A typical request with an OK response
+	req, err := http.NewRequest("GET", "http://test-username:pass@example.com/path", nil)
+	assert.NoError(err)
+	req.RemoteAddr = "192.168.100.11"
+
+	log := logger.NewUPPInfoLogger("test-service")
+	buf := new(bytes.Buffer)
+	log.Out = buf
+
+	writeRequestLog(log, req, knownTransactionID, *req.URL, resptime, http.StatusOK, 100)
+
+	var fields map[string]interface{}
+	err = json.Unmarshal(buf.Bytes(), &fields)
+	assert.NoError(err, "Could not unmarshall")
+
+	_, ok := fields[logger.DefaultKeyTime]
+	assert.True(ok, "Missing time key in the logs")
+
+	// remove the time field as we can't compare it
+	delete(fields, logger.DefaultKeyTime)
+	bufWithoutTime, err := json.Marshal(fields)
+	assert.NoError(err, "Could not marshall log")
+
+	expected := fmt.Sprintf(`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+  "responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
+  "uri":"/path","username":"test-username","service_name":"test-service"}`, int64(resptime.Seconds()*1000))
 	assert.JSONEq(expected, string(bufWithoutTime), "Log format didn't match")
 }
 

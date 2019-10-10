@@ -1,7 +1,7 @@
 version: 2
 jobs:
   build:
-    working_directory: /go/src/github.com/Financial-Times/http-handlers-go
+    working_directory: /go/src/github.com/Financial-Times/http-handlers-go/httphandlers
     docker:
       - image: golang:1
         environment:
@@ -9,7 +9,8 @@ jobs:
           CIRCLE_TEST_REPORTS: /tmp/test-results
           CIRCLE_COVERAGE_REPORT: /tmp/coverage-results
     steps:
-      - checkout
+      - checkout:
+          path: /go/src/github.com/Financial-Times/http-handlers-go
       - run:
           name: External Dependencies
           command: |
