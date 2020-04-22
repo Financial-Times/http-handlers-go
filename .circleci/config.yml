@@ -1,48 +1,13 @@
-version: 2
-jobs:
-  build:
-    working_directory: /go/src/github.com/Financial-Times/http-handlers-go/httphandlers
-    docker:
-      - image: golang:1
-        environment:
-          GOPATH: /go
-          CIRCLE_TEST_REPORTS: /tmp/test-results
-          CIRCLE_COVERAGE_REPORT: /tmp/coverage-results
-    steps:
-      - checkout:
-          path: /go/src/github.com/Financial-Times/http-handlers-go
-      - run:
-          name: External Dependencies
-          command: |
-            GO111MODULE=off go get github.com/mattn/goveralls
-            GO111MODULE=off go get -u github.com/jstemmer/go-junit-report
-            GO111MODULE=off go get -u github.com/haya14busa/goverage
-            curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.18.0
-            git clone git@github.com:Financial-Times/upp-coding-standard.git
-      - run:
-          name: Test Results
-          command: |
-            mkdir -p ${CIRCLE_TEST_REPORTS}
-            mkdir -p ${CIRCLE_COVERAGE_REPORT}
-      - run:
-          name: Go Build
-          command: go build -mod=readonly -v
-      - run:
-          name: Run linters
-          command: |
-            golangci-lint run --config upp-coding-standard/golangci-config/.golangci.yml --new-from-rev=$(git rev-parse origin/master)
-      - run:
-          name: Run Tests
-          command: |
-            go test -mod=readonly -race -v ./... | /go/bin/go-junit-report > ${CIRCLE_TEST_REPORTS}/main.xml
-            goverage -covermode=atomic -race -coverprofile=${CIRCLE_COVERAGE_REPORT}/coverage.out ./...
-      - run:
-          name: Upload Coverage
-          command: /go/bin/goveralls -coverprofile=${CIRCLE_COVERAGE_REPORT}/coverage.out -service=circle-ci -repotoken=$COVERALLS_TOKEN
-      - store_test_results:
-          path: /tmp/test-results
+version: 2.1
+orbs:
+  ft-golang-ci: financial-times/golang-ci@1
 workflows:
-  version: 2
-  test-and-lint:
+  test-and-build-docker:
     jobs:
-      - build
+      - ft-golang-ci/build-and-test:
+          name: build-and-test-project
+  snyk-scanning:
+    jobs:
+      - ft-golang-ci/scan:
+          name: scan-dependencies
+          context: cm-team-snyk
