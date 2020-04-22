@@ -2,12 +2,15 @@ package httphandlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
-	"testing"
-
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
 	"time"
+
+	transactionidutils "github.com/Financial-Times/transactionid-utils-go"
 
 	"github.com/Financial-Times/go-logger/v2"
 	"github.com/rcrowley/go-metrics"
@@ -48,6 +51,36 @@ func TestHttpRequestsAreTimedAndCountedForExistingTimer(t *testing.T) {
 	getMethodTimer := metrics.GetOrRegisterTimer("GET", r)
 
 	assert.True(2 == getMethodTimer.Count(), "Should have now handled two requests")
+
+}
+
+func TestRequestContext(t *testing.T) {
+
+	testKey := "testKey"
+	testVal := "testVal"
+	testTID := "tid_test"
+
+	req := httptest.NewRequest("GET", "http://test.te", nil)
+	req.Header.Set(transactionidutils.TransactionIDHeader, testTID)
+	resp := httptest.NewRecorder()
+	ctx := context.WithValue(context.Background(), testKey, testVal) // nolint: golint
+	req = req.WithContext(ctx)
+	l := logger.NewUPPLogger("service-name", "error")
+	hf := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tidI := ctx.Value(transactionidutils.TransactionIDKey)
+		tid, ok := tidI.(string)
+		assert.True(t, ok)
+		assert.Equal(t, testTID, tid)
+
+		valI := ctx.Value(testKey)
+		val, ok := valI.(string)
+		assert.True(t, ok)
+		assert.Equal(t, testVal, val)
+	})
+
+	h := TransactionAwareRequestLoggingHandler(l, hf)
+	h.ServeHTTP(resp, req)
 
 }
 
