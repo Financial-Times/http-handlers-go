@@ -14,6 +14,13 @@ import (
 	"github.com/rcrowley/go-metrics"
 )
 
+var headerDenyList = map[string]bool{
+	"User-Agent":                           true,
+	"Referer":                              true,
+	transactionidutils.TransactionIDHeader: true,
+	"X-Api-Key":                            true,
+}
+
 // HTTPMetricsHandler records metrics for each request
 func HTTPMetricsHandler(registry metrics.Registry, h http.Handler) http.Handler {
 	return httpMetricsHandler{registry, h}
@@ -186,6 +193,11 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID 
 		"userAgent":      req.UserAgent(),
 	})
 
+	headers := getRequestHeaders(req)
+	if len(headers) != 0 {
+		entry = entry.WithField("headers", headers)
+	}
+
 	uuids := getUUIDsFromURI(uri)
 	if len(uuids) > 0 {
 		entry = entry.WithUUID(strings.Join(uuids, ","))
@@ -200,4 +212,15 @@ func getUUIDsFromURI(uri string) []string {
 	// we use regex that matches v1 to v5 versions of the UUID standard including usage of capital letters
 	re := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`)
 	return re.FindAllString(uri, -1)
+}
+
+func getRequestHeaders(req *http.Request) map[string][]string {
+	headers := map[string][]string{}
+	for key, val := range req.Header {
+		if headerDenyList[key] {
+			continue
+		}
+		headers[key] = val
+	}
+	return headers
 }

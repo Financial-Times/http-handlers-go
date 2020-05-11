@@ -61,29 +61,45 @@ func TestWriteLog(t *testing.T) {
 		url         string
 		respTime    time.Duration
 		remoteAddr  string
-		referer     string
-		userAgent   string
 		expectedLog string
+		headers     map[string]string
 	}{
 		{
 			name:       "standard case",
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			referer:    "http://example.com",
-			userAgent:  "User agent",
+			headers: map[string]string{
+				"Referer":    "http://example.com",
+				"User-Agent": "User agent",
+			},
 			expectedLog: fmt.Sprintf(
 				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/","userAgent":"User agent","service_name":"test-service"}`, int64((time.Millisecond*123).Seconds()*1000)),
 		},
 		{
+			name:       "standard case with filtered headers",
+			url:        "http://example.com",
+			respTime:   time.Millisecond * 123,
+			remoteAddr: "192.168.100.11",
+			headers: map[string]string{
+				"Referer":      "http://example.com",
+				"User-Agent":   "User agent",
+				"X-Request-Id": "ignore-header",
+				"x-api-key":    "ignore-key",
+				"data-header":  "test-header",
+			},
+			expectedLog: fmt.Sprintf(
+				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers":{"Data-Header":["test-header"]}}`, int64((time.Millisecond*123).Seconds()*1000)),
+		},
+		{
 			name:       "log with username",
 			url:        "http://test-username:pass@example.com/path",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "localhost:8080",
-			referer:    "",
-			userAgent:  "",
 			expectedLog: fmt.Sprintf(
 				`{"host":"localhost", 
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
@@ -95,8 +111,6 @@ func TestWriteLog(t *testing.T) {
 			url:        "https://api.ft.com/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			referer:    "",
-			userAgent:  "",
 			expectedLog: fmt.Sprintf(
 				`{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
@@ -109,8 +123,6 @@ func TestWriteLog(t *testing.T) {
 			url:        "https://api.ft.com/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			referer:    "",
-			userAgent:  "",
 			expectedLog: fmt.Sprintf(
 				`{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe,0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
@@ -124,8 +136,9 @@ func TestWriteLog(t *testing.T) {
 			req, err := http.NewRequest("GET", test.url, nil)
 			assert.NoError(err)
 			req.RemoteAddr = test.remoteAddr
-			req.Header.Set("Referer", test.referer)
-			req.Header.Set("User-Agent", test.userAgent)
+			for k, v := range test.headers {
+				req.Header.Set(k, v)
+			}
 
 			log := logger.NewUPPInfoLogger("test-service")
 			buf := new(bytes.Buffer)
