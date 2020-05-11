@@ -57,12 +57,13 @@ func TestWriteLog(t *testing.T) {
 	assert := assert.New(t)
 
 	tests := []struct {
-		name        string
-		url         string
-		respTime    time.Duration
-		remoteAddr  string
-		expectedLog string
-		headers     map[string]string
+		name          string
+		url           string
+		respTime      time.Duration
+		remoteAddr    string
+		expectedLog   string
+		headers       map[string]string
+		deniedHeaders []string
 	}{
 		{
 			name:       "standard case",
@@ -79,7 +80,7 @@ func TestWriteLog(t *testing.T) {
 				"uri":"/","userAgent":"User agent","service_name":"test-service"}`, int64((time.Millisecond*123).Seconds()*1000)),
 		},
 		{
-			name:       "standard case with filtered headers",
+			name:       "standard case with filtered standard headers",
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
@@ -94,6 +95,25 @@ func TestWriteLog(t *testing.T) {
 				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers":{"Data-Header":["test-header"]}}`, int64((time.Millisecond*123).Seconds()*1000)),
+		},
+		{
+			name:       "standard case with filtered custom headers",
+			url:        "http://example.com",
+			respTime:   time.Millisecond * 123,
+			remoteAddr: "192.168.100.11",
+			headers: map[string]string{
+				"Referer":        "http://example.com",
+				"User-Agent":     "User agent",
+				"X-Request-Id":   "ignore-header",
+				"x-api-key":      "ignore-key",
+				"allowed-header": "test-header",
+				"denied-header":  "ignore-key",
+			},
+			deniedHeaders: []string{"denied-header"},
+			expectedLog: fmt.Sprintf(
+				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers":{"Allowed-Header":["test-header"]}}`, int64((time.Millisecond*123).Seconds()*1000)),
 		},
 		{
 			name:       "log with username",
@@ -144,7 +164,7 @@ func TestWriteLog(t *testing.T) {
 			buf := new(bytes.Buffer)
 			log.Out = buf
 
-			writeRequestLog(log, req, knownTransactionID, *req.URL, test.respTime, http.StatusOK, 100)
+			writeRequestLog(log, req, knownTransactionID, *req.URL, test.respTime, http.StatusOK, 100, test.deniedHeaders)
 
 			var fields map[string]interface{}
 			err = json.Unmarshal(buf.Bytes(), &fields)
