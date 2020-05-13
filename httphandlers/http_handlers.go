@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -66,12 +65,12 @@ type transactionAwareRequestLoggingHandler struct {
 func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	transactionID := transactionidutils.GetTransactionIDFromRequest(req)
 	w.Header().Set(transactionidutils.TransactionIDHeader, transactionID)
+
 	t := time.Now()
 	loggingResponseWriter := wrapWriter(w)
-	url := *req.URL
 	h.handler.ServeHTTP(loggingResponseWriter, req)
 	duration := time.Since(t)
-	writeRequestLog(h.logger, req, transactionID, url, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size(), h.deniedHeaders)
+	writeRequestLog(h.logger, req, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size(), h.deniedHeaders)
 }
 
 func wrapWriter(w http.ResponseWriter) loggingResponseWriter {
@@ -170,7 +169,9 @@ type hijackCloseNotifier struct {
 // trnasactionID is a unique id for this request.
 // status and size are used to provide the response HTTP status and size.
 // fh is a list of headers that should not be logged
-func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID string, url url.URL, responseTime time.Duration, status, size int, fh []string) {
+func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime time.Duration, status, size int, fh []string) {
+	transactionID := req.Header.Get(transactionidutils.TransactionIDHeader)
+	url := *req.URL
 	username := ""
 	if url.User != nil {
 		if name := url.User.Username(); name != "" {
@@ -212,7 +213,7 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID 
 
 	headers := getRequestHeaders(req, fh)
 	if len(headers) != 0 {
-		entry = entry.WithField("headers", headers)
+		entry = entry.WithFields(headers)
 	}
 
 	uuids := getUUIDsFromURI(uri)
@@ -231,7 +232,7 @@ func getUUIDsFromURI(uri string) []string {
 	return re.FindAllString(uri, -1)
 }
 
-func getRequestHeaders(req *http.Request, additionalFilter []string) map[string][]string {
+func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]interface{} {
 
 	allowed := func(key string) bool {
 		if headerDenyList[key] {
@@ -245,7 +246,7 @@ func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]
 		return true
 	}
 
-	headers := map[string][]string{}
+	headers := map[string]interface{}{}
 	for key, val := range req.Header {
 		if !allowed(key) {
 			continue

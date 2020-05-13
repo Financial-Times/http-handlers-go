@@ -4,24 +4,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
-
-	"fmt"
 	"time"
 
 	"github.com/Financial-Times/go-logger/v2"
+	transactionidutils "github.com/Financial-Times/transactionid-utils-go"
 	"github.com/rcrowley/go-metrics"
 	"github.com/stretchr/testify/assert"
 )
-
-const knownTransactionID = "KnownTransactionId"
 
 func TestHttpRequestsAreTimedAndCountedForNewTimer(t *testing.T) {
 	assert := assert.New(t)
 
 	r := metrics.NewRegistry()
 
-	httpMetricsHandler := HTTPMetricsHandler(r, innerHandler{})
+	httpMetricsHandler := HTTPMetricsHandler(r, innerHandler{WaitTime: time.Millisecond})
 
 	req := &http.Request{Method: "GET"}
 
@@ -39,7 +37,7 @@ func TestHttpRequestsAreTimedAndCountedForExistingTimer(t *testing.T) {
 	r := metrics.NewRegistry()
 	metrics.NewRegisteredTimer("GET", r).Update(145 * time.Millisecond)
 
-	httpMetricsHandler := HTTPMetricsHandler(r, innerHandler{})
+	httpMetricsHandler := HTTPMetricsHandler(r, innerHandler{WaitTime: time.Millisecond})
 
 	req := &http.Request{Method: "GET"}
 
@@ -71,13 +69,26 @@ func TestWriteLog(t *testing.T) {
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
 			headers: map[string]string{
+				"Referer":      "http://example.com",
+				"User-Agent":   "User agent",
+				"X-Request-Id": "KnownTransactionId",
+			},
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service"}`,
+		},
+		{
+			name:       "standard case generate transaction id",
+			url:        "http://example.com",
+			respTime:   time.Millisecond * 123,
+			remoteAddr: "192.168.100.11",
+			headers: map[string]string{
 				"Referer":    "http://example.com",
 				"User-Agent": "User agent",
 			},
-			expectedLog: fmt.Sprintf(
-				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
-				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/","userAgent":"User agent","service_name":"test-service"}`, int64((time.Millisecond*123).Seconds()*1000)),
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,
+				"uri":"/","userAgent":"User agent","service_name":"test-service"}`,
 		},
 		{
 			name:       "standard case with filtered standard headers",
@@ -87,14 +98,13 @@ func TestWriteLog(t *testing.T) {
 			headers: map[string]string{
 				"Referer":      "http://example.com",
 				"User-Agent":   "User agent",
-				"X-Request-Id": "ignore-header",
+				"X-Request-Id": "KnownTransactionId",
 				"x-api-key":    "ignore-key",
 				"data-header":  "test-header",
 			},
-			expectedLog: fmt.Sprintf(
-				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
-				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers":{"Data-Header":["test-header"]}}`, int64((time.Millisecond*123).Seconds()*1000)),
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "Data-Header":["test-header"]}`,
 		},
 		{
 			name:       "standard case with filtered custom headers",
@@ -104,67 +114,76 @@ func TestWriteLog(t *testing.T) {
 			headers: map[string]string{
 				"Referer":        "http://example.com",
 				"User-Agent":     "User agent",
-				"X-Request-Id":   "ignore-header",
+				"X-Request-Id":   "KnownTransactionId",
 				"x-api-key":      "ignore-key",
 				"allowed-header": "test-header",
 				"denied-header":  "ignore-key",
 			},
 			deniedHeaders: []string{"denied-header"},
-			expectedLog: fmt.Sprintf(
-				`{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
-				"referer":"http://example.com","responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers":{"Allowed-Header":["test-header"]}}`, int64((time.Millisecond*123).Seconds()*1000)),
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "Allowed-Header":["test-header"]}`,
 		},
 		{
 			name:       "log with username",
 			url:        "http://test-username:pass@example.com/path",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "localhost:8080",
-			expectedLog: fmt.Sprintf(
-				`{"host":"localhost", 
+			headers: map[string]string{
+				"X-Request-Id": "KnownTransactionId",
+			},
+			expectedLog: `{"host":"localhost", 
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
-				"responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/path","username":"test-username","service_name":"test-service"}`, int64((time.Millisecond*123).Seconds()*1000)),
+				"size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/path","username":"test-username","service_name":"test-service"}`,
 		},
 		{
 			name:       "log with uuid",
 			url:        "https://api.ft.com/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			expectedLog: fmt.Sprintf(
-				`{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
+			headers: map[string]string{
+				"X-Request-Id": "KnownTransactionId",
+			},
+			expectedLog: `{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
-				"responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations",
-				"service_name":"test-service"}`, int64((time.Millisecond*123).Seconds()*1000)),
+				"service_name":"test-service"}`,
 		},
 		{
 			name:       "log with two uuid",
 			url:        "https://api.ft.com/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			expectedLog: fmt.Sprintf(
-				`{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe,0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
+			headers: map[string]string{
+				"X-Request-Id": "KnownTransactionId",
+			},
+			expectedLog: `{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe,0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
-				"responsetime":%d,"size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/",
-				"service_name":"test-service"}`, int64((time.Millisecond*123).Seconds()*1000)),
+				"service_name":"test-service"}`,
 		},
 	}
 	for _, test := range tests {
+		test := test
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			req, err := http.NewRequest("GET", test.url, nil)
 			assert.NoError(err)
 			req.RemoteAddr = test.remoteAddr
 			for k, v := range test.headers {
 				req.Header.Set(k, v)
 			}
+			resp := httptest.NewRecorder()
 
 			log := logger.NewUPPInfoLogger("test-service")
 			buf := new(bytes.Buffer)
 			log.Out = buf
 
-			writeRequestLog(log, req, knownTransactionID, *req.URL, test.respTime, http.StatusOK, 100, test.deniedHeaders)
+			handler := TransactionAwareRequestLoggingHandler(log, innerHandler{Status: http.StatusOK, Body: make([]byte, 100), WaitTime: test.respTime}, FilterHeaders(test.deniedHeaders))
+			handler.ServeHTTP(resp, req)
 
 			var fields map[string]interface{}
 			err = json.Unmarshal(buf.Bytes(), &fields)
@@ -172,9 +191,23 @@ func TestWriteLog(t *testing.T) {
 
 			_, ok := fields[logger.DefaultKeyTime]
 			assert.True(ok, "Missing time key in the logs")
-
 			// remove the time field as we can't compare it
 			delete(fields, logger.DefaultKeyTime)
+
+			// test response time separately
+			respTime, ok := fields["responsetime"]
+			assert.True(ok, "Missing responsetime in the logs")
+			assert.InDelta(test.respTime.Milliseconds(), respTime, 10)
+			delete(fields, "responsetime")
+
+			// test that transaction id is always present
+			_, ok = fields[transactionidutils.TransactionIDKey]
+			assert.True(ok, "Missing transaction Id field")
+			if test.headers[transactionidutils.TransactionIDHeader] == "" {
+				// transaction id was autogenereted and can't be compared
+				delete(fields, transactionidutils.TransactionIDKey)
+			}
+
 			bufWithoutTime, err := json.Marshal(fields)
 			assert.NoError(err, "Could not marshall log")
 			assert.JSONEq(test.expectedLog, string(bufWithoutTime), "Log format didn't match")
@@ -183,10 +216,17 @@ func TestWriteLog(t *testing.T) {
 }
 
 type innerHandler struct {
+	Status   int
+	Body     []byte
+	WaitTime time.Duration
 }
 
 func (h innerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	time.Sleep(time.Millisecond * 1)
+	time.Sleep(h.WaitTime)
+	if w != nil {
+		w.WriteHeader(h.Status)
+		_, _ = w.Write(h.Body)
+	}
 }
 
 func TestGetUUIDsFromURI(t *testing.T) {
