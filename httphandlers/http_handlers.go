@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +12,13 @@ import (
 	transactionidutils "github.com/Financial-Times/transactionid-utils-go"
 	"github.com/rcrowley/go-metrics"
 )
+
+var headerDenyList = map[string]bool{
+	"User-Agent":                           true,
+	"Referer":                              true,
+	transactionidutils.TransactionIDHeader: true,
+	"X-Api-Key":                            true,
+}
 
 // HTTPMetricsHandler records metrics for each request
 func HTTPMetricsHandler(registry metrics.Registry, h http.Handler) http.Handler {
@@ -29,26 +35,42 @@ func (h httpMetricsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 	t.Time(func() { h.handler.ServeHTTP(w, req) })
 }
 
-// TransactionAwareRequestLoggingHandler finds a transactionID on a request header or generates one, and makes sure it gets logged
-// using the supplied UPP logger
-func TransactionAwareRequestLoggingHandler(logger *logger.UPPLogger, h http.Handler) http.Handler {
-	return transactionAwareRequestLoggingHandler{logger, h}
+type handlerOpt func(h *transactionAwareRequestLoggingHandler)
+
+// FilterHeaders creates a handler option that extends denied header list.
+// When creating the log entry the handler log the request headers. For clarity and security some of the headers are filtered out by default.
+// The default filter list could be extended by providing list of denied header keys.
+func FilterHeaders(headers []string) handlerOpt { // nolint:golint // we don't want handlerOpt exported
+	return func(h *transactionAwareRequestLoggingHandler) {
+		h.deniedHeaders = headers
+	}
+}
+
+// TransactionAwareRequestLoggingHandler creates new http.Handler that would add log entries to the provided logger in structured format.
+// The handler would search for transactionID in the request headers and will generate one if it doesn't find any.
+func TransactionAwareRequestLoggingHandler(log *logger.UPPLogger, handler http.Handler, options ...handlerOpt) http.Handler {
+	h := transactionAwareRequestLoggingHandler{logger: log, handler: handler, deniedHeaders: nil}
+	for _, opt := range options {
+		opt(&h)
+	}
+	return h
 }
 
 type transactionAwareRequestLoggingHandler struct {
-	logger  *logger.UPPLogger
-	handler http.Handler
+	logger        *logger.UPPLogger
+	handler       http.Handler
+	deniedHeaders []string
 }
 
 func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	transactionID := transactionidutils.GetTransactionIDFromRequest(req)
 	w.Header().Set(transactionidutils.TransactionIDHeader, transactionID)
+
 	t := time.Now()
 	loggingResponseWriter := wrapWriter(w)
-	url := *req.URL
 	h.handler.ServeHTTP(loggingResponseWriter, req)
 	duration := time.Since(t)
-	writeRequestLog(h.logger, req, transactionID, url, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size())
+	writeRequestLog(h.logger, req, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size(), h.deniedHeaders)
 }
 
 func wrapWriter(w http.ResponseWriter) loggingResponseWriter {
@@ -146,7 +168,10 @@ type hijackCloseNotifier struct {
 // ts is the timestamp with which the entry should be logged.
 // trnasactionID is a unique id for this request.
 // status and size are used to provide the response HTTP status and size.
-func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID string, url url.URL, responseTime time.Duration, status, size int) {
+// fh is a list of headers that should not be logged
+func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime time.Duration, status, size int, fh []string) {
+	transactionID := req.Header.Get(transactionidutils.TransactionIDHeader)
+	url := *req.URL
 	username := ""
 	if url.User != nil {
 		if name := url.User.Username(); name != "" {
@@ -186,6 +211,11 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, transactionID 
 		"userAgent":      req.UserAgent(),
 	})
 
+	headers := getRequestHeaders(req, fh)
+	if len(headers) != 0 {
+		entry = entry.WithFields(headers)
+	}
+
 	uuids := getUUIDsFromURI(uri)
 	if len(uuids) > 0 {
 		entry = entry.WithUUID(strings.Join(uuids, ","))
@@ -200,4 +230,29 @@ func getUUIDsFromURI(uri string) []string {
 	// we use regex that matches v1 to v5 versions of the UUID standard including usage of capital letters
 	re := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`)
 	return re.FindAllString(uri, -1)
+}
+
+func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]interface{} {
+
+	allowed := func(key string) bool {
+		if headerDenyList[key] {
+			return false
+		}
+		for _, f := range additionalFilter {
+			if strings.EqualFold(f, key) {
+				return false
+			}
+		}
+		return true
+	}
+
+	headers := map[string]interface{}{}
+	for key, val := range req.Header {
+		if !allowed(key) {
+			continue
+		}
+
+		headers[key] = val
+	}
+	return headers
 }
