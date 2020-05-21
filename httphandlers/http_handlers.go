@@ -14,10 +14,16 @@ import (
 )
 
 var headerDenyList = []*regexp.Regexp{
-	regexp.MustCompile("User-Agent"),
-	regexp.MustCompile("Referer"),
-	regexp.MustCompile("X-Request-Id"),
-	regexp.MustCompile("X-Api-Key"),
+	regexp.MustCompile("(?i:^User-Agent$)"),
+	regexp.MustCompile("(?i:^Referer$)"),
+	regexp.MustCompile("(?i:^X-Request-Id$)"),
+	regexp.MustCompile("(?i:^X-Api-Key$)"),
+	regexp.MustCompile("(?i:^X-Varnish$)"),
+	regexp.MustCompile("(?i:^X-Timer$)"),
+	regexp.MustCompile("(?i:^Connection$)"),
+	regexp.MustCompile("(?i:^Content-Length$)"),
+	regexp.MustCompile("(?i:^Cdn-Loop$)"),
+	regexp.MustCompile("(?i:^Fastly)"),
 }
 
 // HTTPMetricsHandler records metrics for each request
