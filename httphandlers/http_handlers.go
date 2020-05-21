@@ -43,19 +43,24 @@ func (h httpMetricsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 
 type handlerOpt func(h *transactionAwareRequestLoggingHandler)
 
+// HeaderFilter is a function type for additional header filtering when logging request headers
+// The function is provided the header key as string and it's expected to return true if the header needs to be preserved.
+type HeaderFilter func(key string) bool
+
 // FilterHeaders creates a handler option that extends denied header list.
 // When creating the log entry the handler log the request headers. For clarity and security some of the headers are filtered out by default.
-// The default filter list could be extended by providing list of denied header keys.
-func FilterHeaders(headers []string) handlerOpt { // nolint:golint // we don't want handlerOpt exported
+// The default filter list could be extended by providing a callback for addition header validation.
+// The callback will be executed after the request has been handled and before creating the new log entry
+func FilterHeaders(fn HeaderFilter) handlerOpt { // nolint:golint // we don't want handlerOpt exported
 	return func(h *transactionAwareRequestLoggingHandler) {
-		h.deniedHeaders = headers
+		h.filterHeadersFn = fn
 	}
 }
 
 // TransactionAwareRequestLoggingHandler creates new http.Handler that would add log entries to the provided logger in structured format.
 // The handler would search for transactionID in the request headers and will generate one if it doesn't find any.
 func TransactionAwareRequestLoggingHandler(log *logger.UPPLogger, handler http.Handler, options ...handlerOpt) http.Handler {
-	h := transactionAwareRequestLoggingHandler{logger: log, handler: handler, deniedHeaders: nil}
+	h := transactionAwareRequestLoggingHandler{logger: log, handler: handler, filterHeadersFn: nil}
 	for _, opt := range options {
 		opt(&h)
 	}
@@ -63,9 +68,9 @@ func TransactionAwareRequestLoggingHandler(log *logger.UPPLogger, handler http.H
 }
 
 type transactionAwareRequestLoggingHandler struct {
-	logger        *logger.UPPLogger
-	handler       http.Handler
-	deniedHeaders []string
+	logger          *logger.UPPLogger
+	handler         http.Handler
+	filterHeadersFn HeaderFilter
 }
 
 func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -76,7 +81,7 @@ func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, 
 	loggingResponseWriter := wrapWriter(w)
 	h.handler.ServeHTTP(loggingResponseWriter, req)
 	duration := time.Since(t)
-	writeRequestLog(h.logger, req, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size(), h.deniedHeaders)
+	writeRequestLog(h.logger, req, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size(), h.filterHeadersFn)
 }
 
 func wrapWriter(w http.ResponseWriter) loggingResponseWriter {
@@ -175,7 +180,7 @@ type hijackCloseNotifier struct {
 // trnasactionID is a unique id for this request.
 // status and size are used to provide the response HTTP status and size.
 // fh is a list of headers that should not be logged
-func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime time.Duration, status, size int, fh []string) {
+func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime time.Duration, status, size int, filter HeaderFilter) {
 	transactionID := req.Header.Get(transactionidutils.TransactionIDHeader)
 	url := *req.URL
 	username := ""
@@ -217,7 +222,7 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime t
 		"userAgent":      req.UserAgent(),
 	})
 
-	headers := getRequestHeaders(req, fh)
+	headers := getRequestHeaders(req, filter)
 	if len(headers) != 0 {
 		entry = entry.WithField("headers", headers)
 	}
@@ -238,25 +243,23 @@ func getUUIDsFromURI(uri string) []string {
 	return re.FindAllString(uri, -1)
 }
 
-func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]string {
+func getRequestHeaders(req *http.Request, additionalFilterFn HeaderFilter) map[string]string {
 
-	allowed := func(key string) bool {
+	allowedFn := func(key string) bool {
 		for _, r := range headerDenyList {
 			if r.MatchString(key) {
 				return false
 			}
 		}
-		for _, f := range additionalFilter {
-			if strings.EqualFold(f, key) {
-				return false
-			}
+		if additionalFilterFn != nil {
+			return additionalFilterFn(key)
 		}
 		return true
 	}
 
 	headers := map[string]string{}
 	for key, val := range req.Header {
-		if !allowed(key) {
+		if !allowedFn(key) {
 			continue
 		}
 

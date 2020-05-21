@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestWriteLog(t *testing.T) {
 		remoteAddr    string
 		expectedLog   string
 		headers       map[string][]string
-		deniedHeaders []string
+		deniedHeaders HeaderFilter
 	}{
 		{
 			name:       "standard case",
@@ -147,7 +148,9 @@ func TestWriteLog(t *testing.T) {
 				"allowed-header": {"test-header"},
 				"denied-header":  {"ignore-key"},
 			},
-			deniedHeaders: []string{"denied-header"},
+			deniedHeaders: func(key string) bool {
+				return !strings.EqualFold(key, "denied-header")
+			},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"test-header"}}`,
@@ -163,7 +166,6 @@ func TestWriteLog(t *testing.T) {
 				"X-Request-Id":   {"KnownTransactionId"},
 				"allowed-header": {"header1", "header2"},
 			},
-			deniedHeaders: []string{"denied-header"},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"header1, header2"}}`,
