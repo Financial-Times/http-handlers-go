@@ -13,11 +13,11 @@ import (
 	"github.com/rcrowley/go-metrics"
 )
 
-var headerDenyList = map[string]bool{
-	"User-Agent":                           true,
-	"Referer":                              true,
-	transactionidutils.TransactionIDHeader: true,
-	"X-Api-Key":                            true,
+var headerDenyList = []*regexp.Regexp{
+	regexp.MustCompile("User-Agent"),
+	regexp.MustCompile("Referer"),
+	regexp.MustCompile("X-Request-Id"),
+	regexp.MustCompile("X-Api-Key"),
 }
 
 // HTTPMetricsHandler records metrics for each request
@@ -235,8 +235,10 @@ func getUUIDsFromURI(uri string) []string {
 func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]string {
 
 	allowed := func(key string) bool {
-		if headerDenyList[key] {
-			return false
+		for _, r := range headerDenyList {
+			if r.MatchString(key) {
+				return false
+			}
 		}
 		for _, f := range additionalFilter {
 			if strings.EqualFold(f, key) {
