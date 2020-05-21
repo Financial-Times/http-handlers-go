@@ -60,7 +60,7 @@ func TestWriteLog(t *testing.T) {
 		respTime      time.Duration
 		remoteAddr    string
 		expectedLog   string
-		headers       map[string]string
+		headers       map[string][]string
 		deniedHeaders []string
 	}{
 		{
@@ -68,10 +68,10 @@ func TestWriteLog(t *testing.T) {
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			headers: map[string]string{
-				"Referer":      "http://example.com",
-				"User-Agent":   "User agent",
-				"X-Request-Id": "KnownTransactionId",
+			headers: map[string][]string{
+				"Referer":      {"http://example.com"},
+				"User-Agent":   {"User agent"},
+				"X-Request-Id": {"KnownTransactionId"},
 			},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
@@ -82,9 +82,9 @@ func TestWriteLog(t *testing.T) {
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			headers: map[string]string{
-				"Referer":    "http://example.com",
-				"User-Agent": "User agent",
+			headers: map[string][]string{
+				"Referer":    {"http://example.com"},
+				"User-Agent": {"User agent"},
 			},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,
@@ -95,42 +95,58 @@ func TestWriteLog(t *testing.T) {
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			headers: map[string]string{
-				"Referer":      "http://example.com",
-				"User-Agent":   "User agent",
-				"X-Request-Id": "KnownTransactionId",
-				"x-api-key":    "ignore-key",
-				"data-header":  "test-header",
+			headers: map[string][]string{
+				"Referer":      {"http://example.com"},
+				"User-Agent":   {"User agent"},
+				"X-Request-Id": {"KnownTransactionId"},
+				"x-api-key":    {"ignore-key"},
+				"data-header":  {"test-header"},
 			},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/","userAgent":"User agent","service_name":"test-service", "Data-Header":["test-header"]}`,
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Data-Header":"test-header"}}`,
 		},
 		{
 			name:       "standard case with filtered custom headers",
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			headers: map[string]string{
-				"Referer":        "http://example.com",
-				"User-Agent":     "User agent",
-				"X-Request-Id":   "KnownTransactionId",
-				"x-api-key":      "ignore-key",
-				"allowed-header": "test-header",
-				"denied-header":  "ignore-key",
+			headers: map[string][]string{
+				"Referer":        {"http://example.com"},
+				"User-Agent":     {"User agent"},
+				"X-Request-Id":   {"KnownTransactionId"},
+				"x-api-key":      {"ignore-key"},
+				"allowed-header": {"test-header"},
+				"denied-header":  {"ignore-key"},
 			},
 			deniedHeaders: []string{"denied-header"},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/","userAgent":"User agent","service_name":"test-service", "Allowed-Header":["test-header"]}`,
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"test-header"}}`,
+		},
+		{
+			name:       "standard case with multiple header values",
+			url:        "http://example.com",
+			respTime:   time.Millisecond * 123,
+			remoteAddr: "192.168.100.11",
+			headers: map[string][]string{
+				"Referer":        {"http://example.com"},
+				"User-Agent":     {"User agent"},
+				"X-Request-Id":   {"KnownTransactionId"},
+				"allowed-header": {"header1", "header2"},
+			},
+			deniedHeaders: []string{"denied-header"},
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"header1, header2"}}`,
 		},
 		{
 			name:       "log with username",
 			url:        "http://test-username:pass@example.com/path",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "localhost:8080",
-			headers: map[string]string{
-				"X-Request-Id": "KnownTransactionId",
+			headers: map[string][]string{
+				"X-Request-Id": {"KnownTransactionId"},
 			},
 			expectedLog: `{"host":"localhost", 
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
@@ -142,8 +158,8 @@ func TestWriteLog(t *testing.T) {
 			url:        "https://api.ft.com/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			headers: map[string]string{
-				"X-Request-Id": "KnownTransactionId",
+			headers: map[string][]string{
+				"X-Request-Id": {"KnownTransactionId"},
 			},
 			expectedLog: `{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
@@ -156,8 +172,8 @@ func TestWriteLog(t *testing.T) {
 			url:        "https://api.ft.com/content/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/annotations/0c2c70cc-b801-11e8-bbc3-ccd7de085ffe/",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
-			headers: map[string]string{
-				"X-Request-Id": "KnownTransactionId",
+			headers: map[string][]string{
+				"X-Request-Id": {"KnownTransactionId"},
 			},
 			expectedLog: `{"host":"192.168.100.11", "uuid":"0c2c70cc-b801-11e8-bbc3-ccd7de085ffe,0c2c70cc-b801-11e8-bbc3-ccd7de085ffe",
 				"level":"info","method":"GET","protocol":"HTTP/1.1",
@@ -173,8 +189,10 @@ func TestWriteLog(t *testing.T) {
 			req, err := http.NewRequest("GET", test.url, nil)
 			assert.NoError(err)
 			req.RemoteAddr = test.remoteAddr
-			for k, v := range test.headers {
-				req.Header.Set(k, v)
+			for key, val := range test.headers {
+				for _, v := range val {
+					req.Header.Add(key, v)
+				}
 			}
 			resp := httptest.NewRecorder()
 
@@ -203,7 +221,7 @@ func TestWriteLog(t *testing.T) {
 			// test that transaction id is always present
 			_, ok = fields[transactionidutils.TransactionIDKey]
 			assert.True(ok, "Missing transaction Id field")
-			if test.headers[transactionidutils.TransactionIDHeader] == "" {
+			if _, ok = test.headers[transactionidutils.TransactionIDHeader]; !ok {
 				// transaction id was autogenereted and can't be compared
 				delete(fields, transactionidutils.TransactionIDKey)
 			}

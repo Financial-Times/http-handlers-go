@@ -213,7 +213,7 @@ func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime t
 
 	headers := getRequestHeaders(req, fh)
 	if len(headers) != 0 {
-		entry = entry.WithFields(headers)
+		entry = entry.WithField("headers", headers)
 	}
 
 	uuids := getUUIDsFromURI(uri)
@@ -232,7 +232,7 @@ func getUUIDsFromURI(uri string) []string {
 	return re.FindAllString(uri, -1)
 }
 
-func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]interface{} {
+func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]string {
 
 	allowed := func(key string) bool {
 		if headerDenyList[key] {
@@ -246,13 +246,13 @@ func getRequestHeaders(req *http.Request, additionalFilter []string) map[string]
 		return true
 	}
 
-	headers := map[string]interface{}{}
+	headers := map[string]string{}
 	for key, val := range req.Header {
 		if !allowed(key) {
 			continue
 		}
 
-		headers[key] = val
+		headers[key] = strings.Join(val, ", ")
 	}
 	return headers
 }
