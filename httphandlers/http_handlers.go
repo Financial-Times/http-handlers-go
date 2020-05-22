@@ -81,7 +81,66 @@ func (h transactionAwareRequestLoggingHandler) ServeHTTP(w http.ResponseWriter, 
 	loggingResponseWriter := wrapWriter(w)
 	h.handler.ServeHTTP(loggingResponseWriter, req)
 	duration := time.Since(t)
-	writeRequestLog(h.logger, req, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size(), h.filterHeadersFn)
+	h.writeRequestLog(req, duration, loggingResponseWriter.Status(), loggingResponseWriter.Size())
+}
+
+// writeRequestLog creates an info log entry in the logger for the provided request
+// responseTime is the time it took to handle the request
+// status and size are used to provide the response HTTP status and size.
+func (h transactionAwareRequestLoggingHandler) writeRequestLog(req *http.Request, responseTime time.Duration, status, size int) {
+	transactionID := req.Header.Get(transactionidutils.TransactionIDHeader)
+	url := *req.URL
+	username := ""
+	if url.User != nil {
+		if name := url.User.Username(); name != "" {
+			username = name
+		}
+	}
+
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+
+	if err != nil {
+		host = req.RemoteAddr
+	}
+
+	uri := req.RequestURI
+
+	// Requests using the CONNECT method over HTTP/2.0 must use
+	// the authority field (aka r.Host) to identify the target.
+	// Refer: https://httpwg.github.io/specs/rfc7540.html#CONNECT
+	if req.ProtoMajor == 2 && req.Method == "CONNECT" {
+		uri = req.Host
+	}
+	if uri == "" {
+		uri = url.RequestURI()
+	}
+
+	entry := h.logger.WithFields(map[string]interface{}{
+		"responsetime":   int64(responseTime.Seconds() * 1000),
+		"host":           host,
+		"username":       username,
+		"method":         req.Method,
+		"transaction_id": transactionID,
+		"uri":            uri,
+		"protocol":       req.Proto,
+		"status":         status,
+		"size":           size,
+		"referer":        req.Referer(),
+		"userAgent":      req.UserAgent(),
+	})
+
+	headers := getRequestHeaders(req, h.filterHeadersFn)
+	if len(headers) != 0 {
+		entry = entry.WithField("headers", headers)
+	}
+
+	uuids := getUUIDsFromURI(uri)
+	if len(uuids) > 0 {
+		entry = entry.WithUUID(strings.Join(uuids, ","))
+	}
+
+	// log the final result
+	entry.Info("")
 }
 
 func wrapWriter(w http.ResponseWriter) loggingResponseWriter {
@@ -173,67 +232,6 @@ type hijackCloseNotifier struct {
 	loggingResponseWriter
 	http.Hijacker
 	http.CloseNotifier
-}
-
-// writeRequestLog writes a log entry to the supplied UPP logger.
-// ts is the timestamp with which the entry should be logged.
-// trnasactionID is a unique id for this request.
-// status and size are used to provide the response HTTP status and size.
-// fh is a list of headers that should not be logged
-func writeRequestLog(logger *logger.UPPLogger, req *http.Request, responseTime time.Duration, status, size int, filter HeaderFilter) {
-	transactionID := req.Header.Get(transactionidutils.TransactionIDHeader)
-	url := *req.URL
-	username := ""
-	if url.User != nil {
-		if name := url.User.Username(); name != "" {
-			username = name
-		}
-	}
-
-	host, _, err := net.SplitHostPort(req.RemoteAddr)
-
-	if err != nil {
-		host = req.RemoteAddr
-	}
-
-	uri := req.RequestURI
-
-	// Requests using the CONNECT method over HTTP/2.0 must use
-	// the authority field (aka r.Host) to identify the target.
-	// Refer: https://httpwg.github.io/specs/rfc7540.html#CONNECT
-	if req.ProtoMajor == 2 && req.Method == "CONNECT" {
-		uri = req.Host
-	}
-	if uri == "" {
-		uri = url.RequestURI()
-	}
-
-	entry := logger.WithFields(map[string]interface{}{
-		"responsetime":   int64(responseTime.Seconds() * 1000),
-		"host":           host,
-		"username":       username,
-		"method":         req.Method,
-		"transaction_id": transactionID,
-		"uri":            uri,
-		"protocol":       req.Proto,
-		"status":         status,
-		"size":           size,
-		"referer":        req.Referer(),
-		"userAgent":      req.UserAgent(),
-	})
-
-	headers := getRequestHeaders(req, filter)
-	if len(headers) != 0 {
-		entry = entry.WithField("headers", headers)
-	}
-
-	uuids := getUUIDsFromURI(uri)
-	if len(uuids) > 0 {
-		entry = entry.WithUUID(strings.Join(uuids, ","))
-	}
-
-	// log the final result
-	entry.Info("")
 }
 
 // getUUIDsFromURI parses the given uri and is looking for uuids
