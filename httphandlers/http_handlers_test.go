@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +63,7 @@ func TestWriteLog(t *testing.T) {
 		remoteAddr    string
 		expectedLog   string
 		headers       map[string][]string
-		deniedHeaders []string
+		deniedHeaders HeaderFilter
 	}{
 		{
 			name:       "standard case",
@@ -96,18 +98,46 @@ func TestWriteLog(t *testing.T) {
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
 			headers: map[string][]string{
-				"Referer":      {"http://example.com"},
-				"User-Agent":   {"User agent"},
-				"X-Request-Id": {"KnownTransactionId"},
-				"x-api-key":    {"ignore-key"},
-				"data-header":  {"test-header"},
+				"Referer":                     {"http://example.com"},
+				"User-Agent":                  {"User agent"},
+				"X-Request-Id":                {"KnownTransactionId"},
+				"x-api-key":                   {"ignore-key"},
+				"data-header":                 {"test-header"},
+				"Accept":                      {"*/*"},
+				"Accept-Encoding":             {"gzip"},
+				"Cache-Control":               {"no-cache"},
+				"Cdn-Loop":                    {"Fastly"},
+				"Connection":                  {"close"},
+				"Content-Length":              {"73"},
+				"Content-Type":                {"application/json"},
+				"Fastly-Client-Ip":            {"1.1.1.1"},
+				"Fastly-Ff":                   {"something to ignore"},
+				"Fastly-Orig-Accept-Encoding": {"gzip", "deflate"},
+				"Fastly-Ssl":                  {"1"},
+				"Fastly-Temp-Xff":             {"1.1.1.1", "2.2.2.2"},
+				"Postman-Token":               {"816da60e-d4be-47b8-ad49-387648169cec"},
+				"X-Forwarded-For":             {"1.1.1.1", "2.2.2.2"},
+				"X-Forwarded-Host":            {"test.ft.com"},
+				"X-Forwarded-Port":            {"443"},
+				"X-Forwarded-Proto":           {"https"},
+				"X-Forwarded-Server":          {"cache-vie11111-VIE"},
+				"X-Original-Request-Url":      {"test.ft.com"},
+				"X-Timer":                     {"S1589964637.859311,VS0"},
+				"X-Varnish":                   {"58679414", "15107515", "1840312"},
+				"X-Varnishpassthrough":        {"true"},
 			},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
-				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Data-Header":"test-header"}}`,
+				"uri":"/","userAgent":"User agent","service_name":"test-service", 
+				"headers":{ "Accept":"*/*", "Accept-Encoding":"gzip", "Cache-Control":"no-cache", 
+					"Content-Type":"application/json", "Data-Header":"test-header",
+					"Postman-Token":"816da60e-d4be-47b8-ad49-387648169cec",
+					"X-Forwarded-For":"1.1.1.1, 2.2.2.2", "X-Forwarded-Host":"test.ft.com", "X-Forwarded-Port":"443",
+					"X-Forwarded-Proto":"https", "X-Forwarded-Server":"cache-vie11111-VIE",
+					"X-Original-Request-Url":"test.ft.com", "X-Varnishpassthrough":"true"}}`,
 		},
 		{
-			name:       "standard case with filtered custom headers",
+			name:       "standard case with custom list headers",
 			url:        "http://example.com",
 			respTime:   time.Millisecond * 123,
 			remoteAddr: "192.168.100.11",
@@ -119,10 +149,62 @@ func TestWriteLog(t *testing.T) {
 				"allowed-header": {"test-header"},
 				"denied-header":  {"ignore-key"},
 			},
-			deniedHeaders: []string{"denied-header"},
+			deniedHeaders: func(key string) bool {
+				filter := map[string]bool{
+					"allowed-header": true,
+					"denied-header":  false,
+				}
+				for f, b := range filter {
+					if strings.EqualFold(key, f) {
+						return b
+					}
+				}
+				return false
+			},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"test-header"}}`,
+		},
+		{
+			name:       "standard case with regexp filter for headers",
+			url:        "http://example.com",
+			respTime:   time.Millisecond * 123,
+			remoteAddr: "192.168.100.11",
+			headers: map[string][]string{
+				"Referer":        {"http://example.com"},
+				"User-Agent":     {"User agent"},
+				"X-Request-Id":   {"KnownTransactionId"},
+				"x-api-key":      {"ignore-key"},
+				"allowed-header": {"test-header"},
+				"denied-header":  {"ignore-key"},
+			},
+			deniedHeaders: func(key string) bool {
+				r := regexp.MustCompile("(?i:^denied-header$)")
+				return !r.MatchString(key)
+			},
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"test-header"}}`,
+		},
+		{
+			name:       "standard case discard headers",
+			url:        "http://example.com",
+			respTime:   time.Millisecond * 123,
+			remoteAddr: "192.168.100.11",
+			headers: map[string][]string{
+				"Referer":        {"http://example.com"},
+				"User-Agent":     {"User agent"},
+				"X-Request-Id":   {"KnownTransactionId"},
+				"x-api-key":      {"ignore-key"},
+				"allowed-header": {"test-header"},
+				"denied-header":  {"ignore-key"},
+			},
+			deniedHeaders: func(key string) bool {
+				return false
+			},
+			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
+				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
+				"uri":"/","userAgent":"User agent","service_name":"test-service"}`,
 		},
 		{
 			name:       "standard case with multiple header values",
@@ -135,7 +217,6 @@ func TestWriteLog(t *testing.T) {
 				"X-Request-Id":   {"KnownTransactionId"},
 				"allowed-header": {"header1", "header2"},
 			},
-			deniedHeaders: []string{"denied-header"},
 			expectedLog: `{"host":"192.168.100.11", "level":"info","method":"GET","protocol":"HTTP/1.1",
 				"referer":"http://example.com","size":100,"status":200,"transaction_id":"KnownTransactionId",
 				"uri":"/","userAgent":"User agent","service_name":"test-service", "headers": {"Allowed-Header":"header1, header2"}}`,
