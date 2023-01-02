@@ -7,3 +7,4 @@ For example:
 the request and output it in a request log message. This is similar to the gorilla/mux
 CombinedOutputLogging handler, but uses a UPP logger to write out the request logs, as well
 as adding in the transactionID.
+test
