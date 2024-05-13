@@ -300,11 +300,11 @@ func TestWriteLog(t *testing.T) {
 			delete(fields, "responsetime")
 
 			// test that transaction id is always present
-			_, ok = fields[transactionidutils.TransactionIDKey]
+			_, ok = fields["transaction_id"]
 			assert.True(ok, "Missing transaction Id field")
 			if _, ok = test.headers[transactionidutils.TransactionIDHeader]; !ok {
 				// transaction id was autogenereted and can't be compared
-				delete(fields, transactionidutils.TransactionIDKey)
+				delete(fields, "transaction_id")
 			}
 
 			bufWithoutTime, err := json.Marshal(fields)
