@@ -1,6 +1,6 @@
 module github.com/Financial-Times/http-handlers-go/v2
 
-go 1.22
+go 1.23
 
 require (
 	github.com/Financial-Times/go-logger/v2 v2.0.1
